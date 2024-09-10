@@ -15,17 +15,17 @@ module.exports = {
     authenticate
 };
 
-//----------------------------------- Get all users -----------------------------------
+//Get all users
 async function getAll() {
     return await db.User.findAll();
 }
 
-//----------------------------------- Get user by ID -----------------------------------
+//Get user by ID
 async function getById(id) {
     return await getUser(id);
 } 
 
-//------------------------------------ Create users ------------------------------------
+//Create users
 async function create(params) {
     if (await db.User.findOne({ where: { email: params.email } })) {
         throw 'Email "' + params.email + '" is already registered';
@@ -36,7 +36,7 @@ async function create(params) {
     await user.save();
 }
 
-// ------------------------------------ Upadate user by Id ------------------------------
+//Upadate user by Id
 async function update(id, params) {
     const user = await getUser(id);
 
@@ -53,19 +53,19 @@ async function update(id, params) {
     await user.save();
 }
 
-// ------------------------------------ Delete user by ID --------------------------------
+// Delete user by ID
 async function _delete(id) {
     const user = await getUser(id);
     await user.destroy();
 }
-//------------------------------------- Get user by ID and show error message when user is not in the database  ------------------
+//Get user by ID and show error message when user is not in the database
 async function getUser(id) {
     const user = await db.User.findByPk(id);
     if (!user) throw 'User ad found';
     return user;
 }
 
-//-------------------------------------- Search functions -----------------------------------
+//Search functions
 
 async function searchAll(query) {
     // Perform a case-insensitive search across multiple fields
@@ -142,7 +142,7 @@ async function search(params) {
     return users;
 }
 
-//================================================ Deactivate & Reactivate =========================================
+//Deactivate & Reactivate 
 
 async function deactivate(id) {
     const user = await getUser(id);
@@ -184,4 +184,3 @@ async function authenticate(email, password) {
         throw `Authentication error: ${error.message || error}`;
     }
 }
-//================================== logouts ========================================
