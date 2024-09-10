@@ -1,7 +1,8 @@
-const bcrypt = require('bcryptjs');
 const { DataTypes } = require('sequelize');
 
-module.exports = (sequelize) => {
+module.exports = model;
+
+function model(sequelize) {
     const attributes = {
         email: { type: DataTypes.STRING, allowNull: false },
         passwordHash: { type: DataTypes.STRING, allowNull: false },
@@ -9,7 +10,9 @@ module.exports = (sequelize) => {
         firstName: { type: DataTypes.STRING, allowNull: false },
         lastName: { type: DataTypes.STRING, allowNull: false },
         role: { type: DataTypes.STRING, allowNull: false },
-        status: {type: DataTypes.STRING}
+        profilePic: { type: DataTypes.STRING, allowNull: false },
+        lastDateLogin: { type: DataTypes.DATE, allowNull: true },
+        isActive: { type: DataTypes.BOOLEAN, defaultValue: true }
     };
     
     const options = {
@@ -21,14 +24,5 @@ module.exports = (sequelize) => {
         }
     };
     
-    const User = sequelize.define('User', attributes, options);
-
-    User.prototype.validPassword = function (password) {
-        if (!this.passwordHash) {
-            throw new Error("Password Hash is undefined");
-        }
-        return bcrypt.compareSync(password, this.passwordHash);
-    }
-
-    return User;
+    return sequelize.define('User', attributes, options);
 }

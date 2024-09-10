@@ -1,120 +1,187 @@
 const bcrypt = require('bcryptjs');
 const db = require('_helpers/db');
-
-// Define the Status constants
-const Status = {
-    Deactivate: 'Deactivate',
-    Reactivate: 'Reactivate',
-    Activate: 'Activate'
-};
+const { Sequelize, Op } = require('sequelize');
 
 module.exports = {
-    login,
     getAll,
     getById,
     create,
     update,
+    delete: _delete,
+    search,
+    searchAll,
     deactivate,
-    activate,
-    status,
-    delete: _delete
+    reactivate,
+    authenticate
 };
 
-// Login function
-async function login({ email, password }) {
-    const user = await db.User.findOne({ where: { email } });
-
-    if (!user || !(await bcrypt.compare(password, user.passwordHash))) {
-        throw new Error('Email or password is incorrect');
-    }
-
-    return user;
-}
-
+//----------------------------------- Get all users -----------------------------------
 async function getAll() {
     return await db.User.findAll();
 }
 
+//----------------------------------- Get user by ID -----------------------------------
 async function getById(id) {
     return await getUser(id);
-}
+} 
 
+//------------------------------------ Create users ------------------------------------
 async function create(params) {
-    // Check if email is already registered
     if (await db.User.findOne({ where: { email: params.email } })) {
-        throw new Error('Email "' + params.email + '" is already registered');
+        throw 'Email "' + params.email + '" is already registered';
     }
-
-   
-    const user = new db.User(params);
-
-
-    user.passwordHash = await bcrypt.hash(params.password, 10);
-
     
+    const user = new db.User(params);
+    user.passwordHash = await bcrypt.hash(params.password, 10);
     await user.save();
 }
 
+// ------------------------------------ Upadate user by Id ------------------------------
 async function update(id, params) {
     const user = await getUser(id);
 
+    const usernameChanged = params.username && user.username !== params.username;
+    if (usernameChanged && await db.User.findOne({ where: { username: params.username } })) {
+        throw 'Username "' + params.username + '" is already taken';
+    }
     
     if (params.password) {
         params.passwordHash = await bcrypt.hash(params.password, 10);
-        delete params.password; 
     }
-
-    // Update user with new params and save
+    
     Object.assign(user, params);
     await user.save();
 }
 
+// ------------------------------------ Delete user by ID --------------------------------
 async function _delete(id) {
     const user = await getUser(id);
     await user.destroy();
 }
-
-// Helper function to get user by ID
+//------------------------------------- Get user by ID and show error message when user is not in the database  ------------------
 async function getUser(id) {
     const user = await db.User.findByPk(id);
-    if (!user) throw new Error('User not found');
+    if (!user) throw 'User ad found';
     return user;
 }
 
-// Function to deactivate user
-async function deactivate(id) {
-    const user = await getUser(id);
+//-------------------------------------- Search functions -----------------------------------
 
-    // Set status to 'Deactivate'
-    user.status = Status.Deactivate;
-    await user.save();
+async function searchAll(query) {
+    // Perform a case-insensitive search across multiple fields
+    const users = await db.User.findAll({
+        where: {
+            [Op.or]: [
+                { email: { [Op.like]: `%${query}%` } },
+                { title: { [Op.like]: `%${query}%` } },
+                { firstName: { [Op.like]: `%${query}%` } },
+                { lastName: { [Op.like]: `%${query}%` } },
+                { role: { [Op.like]: `%${query}%` } }
+            ]
+        }
+    });
 
-    return user;
+    if (users.length === 0) throw new Error('No users found matching the search criteria');
+    return users;
 }
 
-// Function to Activate user
-async function activate(id) {
-    const user = await getUser(id);
+async function search(params) {
+    // Build dynamic query
+    const whereClause = {};
 
-    // Set status to 'Activate'
-    user.status = Status.Activate;
-    await user.save();
-
-    return user;
-}
-
-// Function to update user status (Activate, Deactivate, Reactivate)
-async function status(id, newStatus) {
-    const user = await getUser(id);
-
-    // Check if the provided status is valid
-    if (![Status.Deactivate, Status.Reactivate, Status.Active].includes(newStatus)) {
-        throw new Error('Invalid status provided');
+    if (params.email) {
+        whereClause.email = { [Op.like]: `%${params.email}%` };
+    }
+    if (params.title) {
+        whereClause.title = { [Op.like]: `%${params.title}%` };
+    }
+    if (params.fullName) {
+        whereClause[Op.or] = [
+            Sequelize.where(Sequelize.fn('CONCAT', Sequelize.col('firstName'), ' ', Sequelize.col('lastName')), {
+                [Op.like]: `%${params.fullName}%`
+            })
+        ];
+    } else {
+        // Search firstName and lastName individually if fullName isn't provided
+        if (params.firstName) {
+            whereClause.firstName = { [Op.like]: `%${params.firstName}%` };
+        }
+        if (params.lastName) {
+            whereClause.lastName = { [Op.like]: `%${params.lastName}%` };
+        }
+    }
+    
+    if (params.role) {
+        whereClause.role = { [Op.like]: `%${params.role}%` };
     }
 
-    // Update the user's status
-    user.status = newStatus;
-    await user.save();
+    if (params.status) {
+        if (params.status === 'active') {
+            whereClause.isActive = true;
+        } else if (params.status === 'inactive') {
+            whereClause.isActive = false;
+        } else {
+            throw new Error('Invalid status value. Use "active" or "inactive".');
+        }
+    }
 
-    return user;
+    // Search by dateCreated (e.g., createdAt)
+    if (params.dateCreated) {
+        whereClause.createdAt = { [Op.eq]: new Date(params.dateCreated) }; 
+    }
+
+    if (params.lastDateLogin) {
+        whereClause.lastDateLogin = { [Op.eq]: new Date(params.lastDateLogin) }; 
+    }
+
+    const users = await db.User.findAll({
+        where: whereClause
+    });
+
+    if (users.length === 0) throw new Error('No users found matching the search criteria');
+    return users;
 }
+
+//================================================ Deactivate & Reactivate =========================================
+
+async function deactivate(id) {
+    const user = await getUser(id);
+    user.isActive = false;
+    await user.save();
+}
+
+async function reactivate(id) {
+    const user = await getUser(id);
+    user.isActive = true;
+    await user.save();
+}
+
+async function authenticate(email, password) {
+    if (!email || !password) {
+        throw 'Email and password are required';
+    }
+
+    try {
+        const user = await db.User.scope('withHash').findOne({ where: { email } });
+        
+        if (!user) {
+            throw 'User not found';
+        }
+
+        if (!user.isActive) {
+            throw 'Account is deactivated';
+        }
+
+        const isPasswordMatch = await bcrypt.compare(password, user.passwordHash);
+        if (!isPasswordMatch) {
+            throw 'Invalid password';
+        }
+        user.lastDateLogin = new Date();  // Set current date and time
+        await user.save();
+
+        return user;
+    } catch (error) {
+        throw `Authentication error: ${error.message || error}`;
+    }
+}
+//================================== logouts ========================================
